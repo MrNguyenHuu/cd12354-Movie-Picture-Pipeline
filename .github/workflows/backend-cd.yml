@@ -11,10 +11,6 @@ on:
 permissions:
   pull-requests: write
 
-defaults:
-  run:
-    working-directory: starter/backend
-
 jobs:
   setup-environment:
     runs-on: ubuntu-latest
@@ -22,15 +18,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v3
 
-      - name: Verify working directory exists
-        run: ls starter/backend
+      - name: Verify working directory exists and list files
+        run: |
+          echo "Checking directory contents"
+          ls -al starter/backend
 
       - name: Cache pipenv environment
         id: pip-cache
         uses: actions/cache@v3
         with:
           path: ~/.cache/pipenv
-          key: ${{ runner.os }}-pipenv-${{ hashFiles('**/Pipfile.lock') }}
+          key: ${{ runner.os }}-pipenv-${{ hashFiles('**/starter/backend/Pipfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-pipenv-
 
@@ -38,7 +36,8 @@ jobs:
         if: steps.pip-cache.outputs.cache-hit != 'true'
         run: pip install pipenv
 
-      - name: Install dependencies
+      - name: Install dependencies with pipenv
+        working-directory: starter/backend
         run: pipenv install --deploy --ignore-pipfile
 
   run-lint:
@@ -48,10 +47,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v3
 
-      - name: Verify working directory exists
-        run: ls starter/backend
-
       - name: Run flake8 Lint
+        working-directory: starter/backend
         uses: py-actions/flake8@v2
         with:
           max-line-length: "120"
@@ -63,70 +60,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v3
 
-      - name: Verify working directory exists
-        run: ls starter/backend
-
       - name: Run testing jobs
+        working-directory: starter/backend
         run: pipenv run test
-
-  build:
-    needs: [run-lint, run-test]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build, tag, and push Docker image to Amazon ECR
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          REPOSITORY: backend
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
-          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Deploy K8s manifests
-        working-directory: starter/backend/k8s
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          REPOSITORY: backend
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          aws sts get-caller-identity
-          aws eks --region $AWS_REGION update-kubeconfig --name cluster
-          kubectl config current-context
-          kustomize edit set image backend=$REGISTRY/$REPOSITORY:$IMAGE_TAG
-          kustomize build | kubectl apply -f -
