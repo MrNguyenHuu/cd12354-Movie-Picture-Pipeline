@@ -18,9 +18,13 @@ defaults:
 jobs:
   setup-environment:
     runs-on: ubuntu-latest
-    outputs:
-      python-version: '3.10'
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Verify working directory exists
+        run: ls starter/backend
+
       - name: Cache pipenv environment
         id: pip-cache
         uses: actions/cache@v3
@@ -44,8 +48,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v3
 
-      - name: Reuse setup environment
-        run: echo "Environment setup is completed in reusable step."
+      - name: Verify working directory exists
+        run: ls starter/backend
 
       - name: Run flake8 Lint
         uses: py-actions/flake8@v2
@@ -59,8 +63,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v3
 
-      - name: Reuse setup environment
-        run: echo "Environment setup is completed in reusable step."
+      - name: Verify working directory exists
+        run: ls starter/backend
 
       - name: Run testing jobs
         run: pipenv run test
@@ -68,9 +72,6 @@ jobs:
   build:
     needs: [run-lint, run-test]
     runs-on: ubuntu-latest
-    outputs:
-      registry: ${{ steps.login-ecr.outputs.registry }}
-      image_tag: ${{ github.sha }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v3
@@ -129,8 +130,3 @@ jobs:
           kubectl config current-context
           kustomize edit set image backend=$REGISTRY/$REPOSITORY:$IMAGE_TAG
           kustomize build | kubectl apply -f -
-
-      - name: Post deployment comment
-        run: |
-          echo "Deployed backend version ${{ github.sha }} to K8s cluster." > comment.txt
-          gh pr comment ${{ github.event.pull_request.number }} --body-file comment.txt
